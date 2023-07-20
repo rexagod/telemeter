@@ -2,8 +2,8 @@ package metricfamily
 
 import (
 	clientmodel "github.com/prometheus/client_model/go"
-	"github.com/prometheus/prometheus/pkg/labels"
-	"github.com/prometheus/prometheus/promql"
+	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 type whitelist [][]*labels.Matcher
@@ -15,12 +15,17 @@ type whitelist [][]*labels.Matcher
 // Individual matchers within a matchset are AND-ed, as in PromQL.
 func NewWhitelist(rules []string) (Transformer, error) {
 	var ms [][]*labels.Matcher
-	for i := range rules {
-		matchers, err := promql.ParseMetricSelector(rules[i])
+	for _, rule := range rules {
+		expr, err := parser.ParseExpr(rule)
 		if err != nil {
 			return nil, err
 		}
-		ms = append(ms, matchers)
+		parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
+			if node, ok := node.(*parser.VectorSelector); ok {
+				ms = append(ms, node.LabelMatchers)
+			}
+			return nil
+		})
 	}
 	return whitelist(ms), nil
 }

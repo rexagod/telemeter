@@ -20,9 +20,9 @@ func familyWithLabels(name string, labels ...[]*clientmodel.LabelPair) *clientmo
 func copyMetric(family *clientmodel.MetricFamily) *clientmodel.MetricFamily {
 	metric := make([]*clientmodel.Metric, len(family.Metric))
 	copy(metric, family.Metric)
-	f := *family
+	f := family
 	f.Metric = metric
-	return &f
+	return f
 }
 
 func setNilMetric(family *clientmodel.MetricFamily, positions ...int) *clientmodel.MetricFamily {

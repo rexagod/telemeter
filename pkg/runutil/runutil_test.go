@@ -4,13 +4,14 @@
 package runutil
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/pkg/errors"
-	"github.com/prometheus/prometheus/util/testutil"
 )
 
 type testCloser struct {
@@ -111,14 +112,33 @@ func newEmulatedCloser(r io.Reader) io.ReadCloser {
 	return &emulatedCloser{Reader: r}
 }
 
+func formatMessage(msgAndArgs []interface{}) string {
+	if len(msgAndArgs) == 0 {
+		return ""
+	}
+
+	if msg, ok := msgAndArgs[0].(string); ok {
+		return fmt.Sprintf("\n\nmsg: "+msg, msgAndArgs[1:]...)
+	}
+	return ""
+}
+
+// Equals fails the test if exp is not equal to act.
+func equals(t *testing.T, exp, act interface{}, msgAndArgs ...interface{}) {
+	t.Helper()
+	if !reflect.DeepEqual(exp, act) {
+		t.Fatalf("\033[31m%s\n\nexp: %#v\n\ngot: %#v\033[39m\n", formatMessage(msgAndArgs), exp, act)
+	}
+}
+
 func TestCloseMoreThanOnce(t *testing.T) {
 	lc := &loggerCapturer{}
 	r := newEmulatedCloser(strings.NewReader("somestring"))
 
 	CloseWithLogOnErr(lc, r, "should not be called")
 	CloseWithLogOnErr(lc, r, "should not be called")
-	testutil.Equals(t, false, lc.WasCalled)
+	equals(t, false, lc.WasCalled)
 
 	CloseWithLogOnErr(lc, r, "should be called")
-	testutil.Equals(t, true, lc.WasCalled)
+	equals(t, true, lc.WasCalled)
 }

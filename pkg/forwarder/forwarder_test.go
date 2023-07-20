@@ -290,14 +290,16 @@ func TestRun(t *testing.T) {
 		go func() {
 			from, err := url.Parse(ts2.URL)
 			if err != nil {
-				t.Fatalf("failed to parse second test server URL: %v", err)
+				t.Errorf("failed to parse second test server URL: %v", err)
+				return
 			}
 			if err := w.Reconfigure(Config{
 				From:   from,
 				Logger: log.NewNopLogger(),
 				Tracer: trace.NewNoopTracerProvider(),
 			}); err != nil {
-				t.Fatalf("failed to reconfigure worker with second test server url: %v", err)
+				t.Errorf("failed to reconfigure worker with second test server url: %v", err)
+				return
 			}
 		}()
 	}))

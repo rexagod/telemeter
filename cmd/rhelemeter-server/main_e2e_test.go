@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -22,7 +23,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/prometheus/prompb"
-	"github.com/prometheus/prometheus/util/testutil"
 	"go.uber.org/goleak"
 )
 
@@ -56,6 +56,33 @@ var expectedTimeSeries = []prompb.TimeSeries{
 	},
 }
 
+// ok fails the test if an err is not nil.
+func ok(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("\033[31munexpected error: %v\033[39m\n", err)
+	}
+}
+
+func formatMessage(msgAndArgs []interface{}) string {
+	if len(msgAndArgs) == 0 {
+		return ""
+	}
+
+	if msg, ok := msgAndArgs[0].(string); ok {
+		return fmt.Sprintf("\n\nmsg: "+msg, msgAndArgs[1:]...)
+	}
+	return ""
+}
+
+// Equals fails the test if exp is not equal to act.
+func equals(t *testing.T, exp, act interface{}, msgAndArgs ...interface{}) {
+	t.Helper()
+	if !reflect.DeepEqual(exp, act) {
+		t.Fatalf("\033[31m%s\n\nexp: %#v\n\ngot: %#v\033[39m\n", formatMessage(msgAndArgs), exp, act)
+	}
+}
+
 func TestServerRHEL(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
@@ -63,7 +90,7 @@ func TestServerRHEL(t *testing.T) {
 	defer receiveServer.Close()
 
 	telemeterClient, err := makeMTLSClient()
-	testutil.Ok(t, err)
+	ok(t, err)
 
 	testCases := []struct {
 		name      string
@@ -84,7 +111,7 @@ func TestServerRHEL(t *testing.T) {
 			prometheus.DefaultRegisterer = prometheus.NewRegistry()
 
 			ext, err := net.Listen("tcp", "127.0.0.1:0")
-			testutil.Ok(t, err)
+			ok(t, err)
 
 			var wg sync.WaitGroup
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -98,13 +125,14 @@ func TestServerRHEL(t *testing.T) {
 			tcase.extraOpts(opts)
 
 			local, err := net.Listen("tcp", "127.0.0.1:0")
-			testutil.Ok(t, err)
+			ok(t, err)
 
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				if err := opts.Run(ctx, ext, local); err != context.Canceled {
-					t.Fatal(err)
+					t.Error(err)
+					return
 				}
 			}()
 
@@ -134,23 +162,23 @@ func TestServerRHEL(t *testing.T) {
 							var wr prompb.WriteRequest
 							wr.Timeseries = expectedTimeSeries
 							data, err := proto.Marshal(&wr)
-							testutil.Ok(t, err)
+							ok(t, err)
 
 							compressedData := snappy.Encode(nil, data)
 
 							req, err := http.NewRequest(http.MethodPost, "https://"+ext.Addr().String()+"/metrics/v1/receive", bytes.NewReader(compressedData))
-							testutil.Ok(t, err)
+							ok(t, err)
 
 							req.Header.Set("Content-Type", string(expfmt.FmtProtoDelim))
 							resp, err := telemeterClient.Do(req.WithContext(ctx))
-							testutil.Ok(t, err)
+							ok(t, err)
 
 							defer resp.Body.Close()
 
 							body, err := ioutil.ReadAll(resp.Body)
-							testutil.Ok(t, err)
+							ok(t, err)
 
-							testutil.Equals(t, http.StatusOK, resp.StatusCode, string(body))
+							equals(t, http.StatusOK, resp.StatusCode, string(body))
 						})
 					}
 				})
@@ -213,7 +241,7 @@ func mockedReceiver(t *testing.T) http.HandlerFunc {
 			t.Errorf("failed to unmarshal WriteRequest: %v", err)
 		}
 
-		testutil.Equals(t, len(expectedTimeSeries), len(wreq.Timeseries))
+		equals(t, len(expectedTimeSeries), len(wreq.Timeseries))
 
 		for i, ts := range expectedTimeSeries {
 			for j, l := range ts.Labels {

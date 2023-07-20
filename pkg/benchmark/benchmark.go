@@ -295,7 +295,7 @@ func (w *worker) generate() []*clientmodel.MetricFamily {
 	mfs := make([]*clientmodel.MetricFamily, len(w.metrics))
 	now := time.Now().UnixNano() / int64(time.Millisecond)
 	for i := range w.metrics {
-		mf := *w.metrics[i]
+		mf := w.metrics[i]
 		mf.Metric = make([]*clientmodel.Metric, len(w.metrics[i].Metric))
 		for j := range w.metrics[i].Metric {
 			m := randomize(w.metrics[i].Metric[j])
@@ -307,14 +307,14 @@ func (w *worker) generate() []*clientmodel.MetricFamily {
 		sort.Slice(mf.Metric, func(i, j int) bool {
 			return mf.Metric[i].GetTimestampMs() < mf.Metric[j].GetTimestampMs()
 		})
-		mfs[i] = &mf
+		mfs[i] = mf
 	}
 	return mfs
 }
 
 // randomize copies and randomizes the values of a metric.
 func randomize(metric *clientmodel.Metric) *clientmodel.Metric {
-	m := *metric
+	m := metric
 	if m.GetUntyped() != nil {
 		v := *m.GetUntyped()
 		f := math.Round(rand.Float64() * v.GetValue())
@@ -335,7 +335,7 @@ func randomize(metric *clientmodel.Metric) *clientmodel.Metric {
 			m.Counter = &v
 		}
 	}
-	return &m
+	return m
 }
 
 func (w *worker) forward(ctx context.Context, metrics []*clientmodel.MetricFamily) error {

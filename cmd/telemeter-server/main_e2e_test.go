@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -21,9 +23,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	clientmodel "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
-	"github.com/prometheus/prometheus/pkg/timestamp"
+	"github.com/prometheus/prometheus/model/timestamp"
 	"github.com/prometheus/prometheus/prompb"
-	"github.com/prometheus/prometheus/util/testutil"
 	"go.uber.org/goleak"
 )
 
@@ -63,6 +64,33 @@ var expectedTimeSeries = []prompb.TimeSeries{
 	},
 }
 
+// ok fails the test if an err is not nil.
+func ok(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("\033[31munexpected error: %v\033[39m\n", err)
+	}
+}
+
+func formatMessage(msgAndArgs []interface{}) string {
+	if len(msgAndArgs) == 0 {
+		return ""
+	}
+
+	if msg, ok := msgAndArgs[0].(string); ok {
+		return fmt.Sprintf("\n\nmsg: "+msg, msgAndArgs[1:]...)
+	}
+	return ""
+}
+
+// Equals fails the test if exp is not equal to act.
+func equals(t *testing.T, exp, act interface{}, msgAndArgs ...interface{}) {
+	t.Helper()
+	if !reflect.DeepEqual(exp, act) {
+		t.Fatalf("\033[31m%s\n\nexp: %#v\n\ngot: %#v\033[39m\n", formatMessage(msgAndArgs), exp, act)
+	}
+}
+
 func TestServer(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
@@ -97,7 +125,7 @@ func TestServer(t *testing.T) {
 			prometheus.DefaultRegisterer = prometheus.NewRegistry()
 
 			ext, err := net.Listen("tcp", "127.0.0.1:0")
-			testutil.Ok(t, err)
+			ok(t, err)
 
 			var wg sync.WaitGroup
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -118,13 +146,14 @@ func TestServer(t *testing.T) {
 				tcase.extraOpts(opts)
 
 				local, err := net.Listen("tcp", "127.0.0.1:0")
-				testutil.Ok(t, err)
+				ok(t, err)
 
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
 					if err := opts.Run(ctx, ext, local); err != context.Canceled {
-						t.Fatal(err)
+						t.Error(err)
+						return
 					}
 				}()
 			}
@@ -137,22 +166,22 @@ func TestServer(t *testing.T) {
 					t.Run("authorize", func(t *testing.T) {
 						// Authorize first.
 						req, err := http.NewRequest(http.MethodPost, "http://"+ext.Addr().String()+"/authorize", nil)
-						testutil.Ok(t, err)
+						ok(t, err)
 
 						q := req.URL.Query()
 						q.Add("id", cluster)
 						req.URL.RawQuery = q.Encode()
 						req.Header.Set("Authorization", "bearer whatever")
 						resp, err := http.DefaultClient.Do(req.WithContext(ctx))
-						testutil.Ok(t, err)
+						ok(t, err)
 
 						defer resp.Body.Close()
 						body, err := ioutil.ReadAll(resp.Body)
-						testutil.Ok(t, err)
+						ok(t, err)
 
-						testutil.Equals(t, 2, resp.StatusCode/100, "request did not return 2xx, but %s: %s", resp.Status, string(body))
+						equals(t, 2, resp.StatusCode/100, "request did not return 2xx, but %s: %s", resp.Status, string(body))
 
-						testutil.Ok(t, json.Unmarshal(body, &tokenResp))
+						ok(t, json.Unmarshal(body, &tokenResp))
 					})
 
 					for i := 0; i < 5; i++ {
@@ -162,23 +191,23 @@ func TestServer(t *testing.T) {
 							buf := &bytes.Buffer{}
 							encoder := expfmt.NewEncoder(buf, expfmt.FmtProtoDelim)
 							for _, f := range metricFamilies {
-								testutil.Ok(t, encoder.Encode(f))
+								ok(t, encoder.Encode(f))
 							}
 
 							req, err := http.NewRequest(http.MethodPost, "http://"+ext.Addr().String()+"/upload", buf)
-							testutil.Ok(t, err)
+							ok(t, err)
 
 							req.Header.Set("Content-Type", string(expfmt.FmtProtoDelim))
 							req.Header.Set("Authorization", "bearer "+tokenResp.Token)
 							resp, err := http.DefaultClient.Do(req.WithContext(ctx))
-							testutil.Ok(t, err)
+							ok(t, err)
 
 							defer resp.Body.Close()
 
 							body, err := ioutil.ReadAll(resp.Body)
-							testutil.Ok(t, err)
+							ok(t, err)
 
-							testutil.Equals(t, http.StatusOK, resp.StatusCode, string(body))
+							equals(t, http.StatusOK, resp.StatusCode, string(body))
 						})
 					}
 				})
